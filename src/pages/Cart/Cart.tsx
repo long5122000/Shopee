@@ -14,7 +14,9 @@ import { Purchase } from 'src/types/purchase.type'
 import { formatCurrency, generateNameId } from 'src/utils/ultil'
 import { number } from 'yup'
 import noproduct from 'src/assets/images/no-product.png'
+import { useTranslation } from 'react-i18next'
 const Cart = () => {
+  const { t } = useTranslation('cart')
   const { extendedPurchases, setExtendedPurchases } = useContext(AppContext)
 
   const { data: purchasesInCartData, refetch } = useQuery({
@@ -156,15 +158,15 @@ const Cart = () => {
                           onChange={handleCheckAll}
                         />
                       </div>
-                      <div className='flex-grow text-black'>Sản phẩm</div>
+                      <div className='flex-grow text-black'>{t('product cart')}</div>
                     </div>
                   </div>
                   <div className='col-span-6'>
                     <div className='grid grid-cols-5 text-center'>
-                      <div className='col-span-2'>Đơn giá</div>
-                      <div className='col-span-1'>Số lượng</div>
-                      <div className='col-span-1'>Số tiền</div>
-                      <div className='col-span-1'>Thao tác</div>
+                      <div className='col-span-2'>{t('unit price')}</div>
+                      <div className='col-span-1'>{t('quantity')}</div>
+                      <div className='col-span-1'>{t('total price')}</div>
+                      <div className='col-span-1'>{t('actions')}</div>
                     </div>
                   </div>
                 </div>
@@ -251,7 +253,7 @@ const Cart = () => {
                                 onClick={handleDelete(index)}
                                 className='bg-none text-black transition-colors hover:text-orange'
                               >
-                                Xóa
+                                {t('delete')}
                               </button>
                             </div>
                           </div>
@@ -273,21 +275,23 @@ const Cart = () => {
                   />
                 </div>
                 <button className='mx-3 border-none bg-none' onClick={handleCheckAll}>
-                  Chọn tất cả ({extendedPurchases.length})
+                  {t('choose all')} ({extendedPurchases.length})
                 </button>
                 <button className='mx-3 border-none bg-none' onClick={handleDeleteManyPurchases}>
-                  Xóa
+                  {t('delete')}
                 </button>
               </div>
 
               <div className='mt-5 flex flex-col sm:ml-auto sm:mt-0 sm:flex-row sm:items-center'>
                 <div>
                   <div className='flex items-center sm:justify-end'>
-                    <div>Tổng thanh toán ({checkedPurchasesCount} sản phẩm):</div>
+                    <div>
+                      {t('total checkout')} ({checkedPurchasesCount} {t('item')}):
+                    </div>
                     <div className='ml-2 text-2xl text-orange'>₫{formatCurrency(totalCheckedPurchasePrice)}</div>
                   </div>
                   <div className='flex items-center text-sm sm:justify-end'>
-                    <div className='text-gray-500'>Tiết kiệm</div>
+                    <div className='text-gray-500'>{t('save price')}</div>
                     <div className='ml-6 text-orange'>₫{formatCurrency(totalCheckedPurchaseSavingPrice)}</div>
                   </div>
                 </div>
@@ -296,7 +300,7 @@ const Cart = () => {
                   onClick={handleBuyPurchases}
                   disabled={buyProductsMutation.isLoading}
                 >
-                  Mua hàng
+                  {t('button checkout')}
                 </Button>
               </div>
             </div>

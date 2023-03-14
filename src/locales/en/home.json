@@ -1,0 +1,20 @@
+{
+  "aside filter": {
+    "all categories": "All categories",
+    "filter search": "Filter",
+    "price range": "Price Range",
+    "price range from": "MAX",
+    "price range to": "MIN",
+    "rating": "Rating",
+    "rating up": "& Up",
+    "button apply": "APPLY",
+    "button delete all": "DELETE ALL",
+    "sort by": "Sort by",
+    "popular": "Popular",
+    "latest": "Latest",
+    "top sales": "Top Sales",
+    "select price": "Price",
+    "select price high": "Price: High to Low",
+    "select price low": "Price: Low to High"
+  }
+}

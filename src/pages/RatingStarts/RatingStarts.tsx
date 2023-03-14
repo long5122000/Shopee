@@ -1,5 +1,6 @@
 import { omit } from 'lodash'
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { createSearchParams, Link, useNavigate } from 'react-router-dom'
 import path from 'src/constants/path'
 import { QueryConfig } from 'src/hooks/useQueryConfig'
@@ -8,6 +9,7 @@ interface Props {
   queryConfig: QueryConfig
 }
 const RatingStarts = ({ queryConfig }: Props) => {
+  const { t } = useTranslation('home')
   const navigate = useNavigate()
   const handleFilterStar = (rating_filter: number) => {
     navigate({
@@ -83,7 +85,7 @@ const RatingStarts = ({ queryConfig }: Props) => {
                   )
                 })}
 
-              {index !== 0 && <span>Trở lên</span>}
+              {index !== 0 && <span> {t('aside filter.rating up')}</span>}
             </div>
           </li>
         ))}

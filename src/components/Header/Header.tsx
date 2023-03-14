@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useContext } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import purchaseApi from 'src/apis/purchase.api'
 import noproduct from 'src/assets/images/no-product.png'
@@ -13,6 +14,7 @@ import Popover from '../Popover'
 
 const MAX_PURCHASES = 5
 const Header = () => {
+  const { t } = useTranslation('cart')
   const { isAuthenticated } = useContext(AppContext)
   const { onSubmitSearch, register } = useSearchProducts()
 
@@ -74,7 +76,7 @@ const Header = () => {
                 <div className='relative min-w-[350px] max-w-[400px] rounded-sm border border-gray-200 bg-white text-sm shadow-md'>
                   {purchasesInCart && purchasesInCart.length > 0 ? (
                     <div className='p-2'>
-                      <div className='capitalize text-gray-400'>Sản phẩm mới thêm </div>
+                      <div className='capitalize text-gray-400'>{t('recently added products')}</div>
                       <div className='mt-5'>
                         {purchasesInCart.slice(0, MAX_PURCHASES).map((purchase) => (
                           <div className='mt-2 flex py-2 hover:bg-gray-100' key={purchase._id}>
@@ -96,14 +98,14 @@ const Header = () => {
                       </div>
                       <div className='mt-6 flex items-center justify-between'>
                         <div className='text-xs capitalize text-gray-500'>
-                          {purchasesInCart.length > MAX_PURCHASES ? purchasesInCart.length - MAX_PURCHASES : ''} Thêm
-                          hàng vào giỏ
+                          {purchasesInCart.length > MAX_PURCHASES ? purchasesInCart.length - MAX_PURCHASES : ''}{' '}
+                          {t('more product in cart')}
                         </div>
                         <Link
                           to={path.cart}
                           className='flex-col rounded-sm bg-orange px-4 py-2 capitalize text-white hover:bg-opacity-90'
                         >
-                          Xem giỏ hàng
+                          {t('view my shopping cart')}
                         </Link>
                       </div>
                     </div>
