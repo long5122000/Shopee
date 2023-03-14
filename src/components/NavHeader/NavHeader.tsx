@@ -33,7 +33,7 @@ const NavHeader = () => {
     i18n.changeLanguage(lng)
   }
   return (
-    <div className='flex justify-end'>
+    <div className='flex justify-end text-sm md:text-base'>
       <Popover
         renderPopover={
           <div className='relative rounded-sm border border-gray-200 bg-white shadow-md'>

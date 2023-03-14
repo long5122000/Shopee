@@ -141,7 +141,7 @@ const Cart = () => {
     }
   }
   return (
-    <div className='bg-neutral-100 py-16'>
+    <div className='bg-neutral-100 py-6 md:py-16'>
       <div className='container'>
         {extendedPurchases.length > 0 ? (
           <>

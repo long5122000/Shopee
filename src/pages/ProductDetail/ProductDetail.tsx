@@ -89,8 +89,8 @@ const ProductDetail = () => {
     <div className='bg-gray-200 py-6'>
       <div className='container'>
         <div className='bg-white p-4 shadow'>
-          <div className='grid grid-cols-12 gap-9'>
-            <div className='col-span-5'>
+          <div className='grid grid-cols-12 gap-2 lg:gap-9'>
+            <div className=' col-span-12 md:col-span-5'>
               <div className='relative w-full pt-[100%] shadow'>
                 <img
                   src={activeImage}
@@ -145,8 +145,8 @@ const ProductDetail = () => {
                 </button>
               </div>
             </div>
-            <div className='col-span-7'>
-              <h1 className='text-xl font-medium uppercase'>{product.name}</h1>
+            <div className=' col-span-12 md:col-span-7'>
+              <h1 className='text-xl font-medium uppercase sm:text-xl'>{product.name}</h1>
               <div className='mt-8 flex items-center'>
                 <div className='flex items-center'>
                   <span className='mr-1 border-b border-b-orange text-orange'>{product.rating}</span>
@@ -169,7 +169,7 @@ const ProductDetail = () => {
                   {rateSale(product.price_before_discount, product.price)} {t('sale off')}
                 </div>
               </div>
-              <div className='mt-8 flex items-center'>
+              <div className='mt-8 flex flex-col items-center md:flex-row'>
                 <div className='capitalize text-gray-500'>{t('quantity')}</div>
                 <QuantityController
                   onDecrease={handleBuyCount}
