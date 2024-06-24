@@ -1,0 +1,391 @@
+import React, {useEffect, useMemo, useRef, useState} from 'react';
+import {Box, ScrollView, HStack, Button, Center, useToast} from 'native-base';
+import type {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {RootStackParamList} from '~/routes';
+import {useCommentRequest,useUserBranchRequest, useErrorDetail, useUpdateError} from './hook';
+import {IErrorAttributies, IErrorStatus} from '~/types/error';
+import {useAuth} from '~/hooks/auth/useAuth';
+import Content from './components/Content';
+import {hasRole} from '~/utils/helper';
+import {IUser} from '~/types/users';
+import {useForm, FormProvider} from 'react-hook-form';
+import {yupResolver} from '@hookform/resolvers/yup';
+import * as yup from 'yup';
+import {OverlayLoading} from '~/components/common/OverlayLoading';
+import {IImage} from '~/types/image';
+import { Keyboard, KeyboardAvoidingView,Platform } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+
+type IErrorSituationProps = NativeStackScreenProps<
+  RootStackParamList,
+  'ErrorSituation'
+>;
+
+const ErrorSituation: React.FC<IErrorSituationProps> = ({
+  route,
+  navigation,
+}) => {
+  const {errorId, formId} = route.params;
+  const toast = useToast();
+  const {user} = useAuth();
+
+  const hsRole = hasRole(user as IUser, ['fn_error']);
+
+  const {control, reset, handleSubmit} = useForm<{
+    errorCurrentState: string;
+    solution: string;
+    reason: string;
+    deadline: Date | null;
+    fixedImages: IImage[];
+  }>({
+    defaultValues: {
+      errorCurrentState: '',
+      solution: '',
+      reason: '',
+      deadline: null,
+      fixedImages: [],
+    },
+    // @ts-ignore
+    resolver: yupResolver(
+      yup
+        .object()
+        .shape({
+          errorCurrentState: yup
+            .string()
+            .max(1000, 'Không nhập quá 1000 ký tự')
+            .nullable(),
+          solution: yup
+            .string()
+            .max(1000, 'Không nhập quá 1000 ký tự')
+            .nullable(),
+          reason: yup.string().max(1000, 'Không nhập quá 1000 ký tự').nullable(),
+          deadline: yup.date().nullable(),
+          fixedImages: yup.array().nullable(),
+        })
+        .required(),
+    ),
+  });
+
+  const {
+    data: error,
+    isLoading,
+    isFetching,
+    isFetched,
+  } = useErrorDetail(errorId, formId, data => {
+    reset({
+      errorCurrentState: data?.errorCurrentState,
+      solution: data?.solution,
+      reason: data?.reason,
+      deadline: data?.deadline || null,
+      fixedImages: data?.fixedImages || [],
+    });
+  });
+
+  const {mutateAsync: confirmMutation, isLoading: confirmLoading} =
+    useUpdateError(
+      () => navigation.goBack(),
+      () => {
+        toast.show({
+          description: 'Đã có lỗi xảy ra.',
+        });
+      },
+    );
+
+  const handleQA = () =>
+    handleSubmit(values =>
+      confirmMutation({
+        id: errorId,
+        formId: formId,
+        body: {
+          errorStatus: IErrorStatus.QA,
+          errorCurrentState: values.errorCurrentState,
+          deadline: values.deadline,
+          solution: values.solution,
+          reason: values.reason,
+          fixedImages: values.fixedImages.map(i => i.id),
+        },
+      }),
+    )();
+
+  const handleFixed = () =>
+    handleSubmit(values => {
+      confirmMutation({
+        id: errorId,
+        formId: formId,
+        body: {
+          errorStatus: IErrorStatus.CLOSED,
+          errorCurrentState: values.errorCurrentState,
+          deadline: values.deadline,
+          solution: values.solution,
+          reason: values.reason,
+          fixedImages: values.fixedImages.map(i => i.id),
+        },
+      });
+    })();
+
+  const handleNotFixed = () =>
+    handleSubmit(values =>
+      confirmMutation({
+        id: errorId,
+        formId: formId,
+        body: {
+          errorStatus: IErrorStatus.OPEN,
+          errorCurrentState: values.errorCurrentState,
+          deadline: values.deadline,
+          solution: values.solution,
+          reason: values.reason,
+          fixedImages: values.fixedImages.map(i => i.id),
+        },
+      }),
+    )();
+
+  const isReadOnly = useMemo(
+    () =>
+      error?.errorStatus === IErrorStatus.CLOSED ||
+      (!hsRole && !user?.isGA && !user?.isOwner) ||
+      (error?.errorStatus === IErrorStatus.QA &&
+        user?.isGA &&
+        !user?.isOwner) ||
+      (error?.errorStatus === IErrorStatus.OPEN &&
+        !user?.isGA &&
+        !user?.isOwner),
+    [error?.errorStatus],
+  );
+  const scrollViewRef = useRef(null);
+
+
+  return (
+  
+    <Box bg="custom.white" flex={1} safeAreaBottom>
+      <OverlayLoading isLoading={isFetching} />
+      {Platform.OS === 'ios ' ?  <KeyboardAwareScrollView
+       contentContainerStyle={{ flexGrow: 1 }}
+       keyboardShouldPersistTaps="handled"
+       extraScrollHeight={ 64 }
+       enableOnAndroid={true} // Ensure this prop is set to true
+    >
+      <ScrollView ref={scrollViewRef}
+        flex={1}
+        px={4}
+        keyboardShouldPersistTaps="handled">
+        {!!error && (
+     
+          <Content control={control} error={error} errB={error.branchId} formId={formId} disabled={isReadOnly} navigation={navigation} />
+        
+        )}
+        {!isReadOnly &&
+          isFetched &&
+          ((error?.errorStatus === IErrorStatus.QA && !user?.isGA) ||
+            (error?.errorStatus === IErrorStatus.OPEN && !!user?.isGA) ||
+            user?.isOwner) && (
+            <>
+              <HStack marginTop={10} w={'full'} space={7} px={7}>
+                <Button
+                  flex={1}
+                  _text={{bold: true}}
+                  isLoading={confirmLoading}
+                  borderRadius={10}
+                  onPress={user?.isGA ? handleQA : handleFixed}>
+                  Đã khắc phục
+                </Button>
+                {user?.isGA && !user?.isOwner ? (
+                  <Button
+                    flex={1}
+                    _text={{bold: true, color: 'custom.amber'}}
+                    bg="#F7F8F8"
+                    disabled={confirmLoading}
+                    onPress={navigation.goBack}
+                    borderRadius={10}
+                    px={7}>
+                    Huỷ bỏ
+                  </Button>
+                ) : (
+                  <Button
+                    flex={1}
+                    _text={{bold: true}}
+                    bg="custom.amber"
+                    isLoading={confirmLoading}
+                    borderRadius={10}
+                    isDisabled={error?.errorStatus === IErrorStatus.OPEN}
+                    onPress={handleNotFixed}>
+                    Chưa khắc phục
+                  </Button>
+                )}
+              </HStack>
+              {!user?.isGA && !user?.isOwner && (
+                <Center mt={5}>
+                  <Button
+                    flex={1}
+                    _text={{bold: true, color: 'custom.amber'}}
+                    bg="#F7F8F8"
+                    disabled={confirmLoading}
+                    onPress={navigation.goBack}
+                    borderRadius={10}
+                    px={7}>
+                    Huỷ bỏ
+                  </Button>
+                </Center>
+              )}
+              {user?.isOwner && (
+                <HStack marginTop={5} w={'full'} space={7} px={7}>
+                  <Button
+                    flex={1}
+                    _text={{bold: true}}
+                    bg="#0AB39C"
+                    isLoading={confirmLoading}
+                    borderRadius={10}
+                    isDisabled={error?.errorStatus === IErrorStatus.QA}
+                    onPress={handleQA}>
+                    Đánh giá lại
+                  </Button>
+                  <Button
+                    flex={1}
+                    _text={{bold: true, color: 'custom.amber'}}
+                    bg="#F7F8F8"
+                    disabled={confirmLoading}
+                    onPress={navigation.goBack}>
+                    Huỷ bỏ
+                  </Button>
+                </HStack>
+              )}
+            </>
+          )}
+        {((error?.errorStatus === IErrorStatus.QA &&
+          !!user?.isGA &&
+          !user?.isOwner) ||
+          (error?.errorStatus === IErrorStatus.OPEN &&
+            !user?.isGA &&
+            !user?.isOwner) ||
+          isReadOnly) && (
+          <Center m={5}>
+            <Button
+              flex={1}
+              _text={{bold: true, color: 'custom.amber'}}
+              bg="#F7F8F8"
+              disabled={confirmLoading}
+              borderRadius={10}
+              onPress={navigation.goBack}
+              px={7}>
+              Huỷ bỏ
+            </Button>
+          </Center>
+        )}
+
+        <Box h={4} />
+      </ScrollView>
+    </KeyboardAwareScrollView> :       <ScrollView ref={scrollViewRef}
+        flex={1}
+        px={4}
+        keyboardShouldPersistTaps="handled">
+        {!!error && (
+     
+          <Content control={control} error={error} errB={error.branchId} formId={formId} disabled={isReadOnly} navigation={navigation} />
+        
+        )}
+        {!isReadOnly &&
+          isFetched &&
+          ((error?.errorStatus === IErrorStatus.QA && !user?.isGA) ||
+            (error?.errorStatus === IErrorStatus.OPEN && !!user?.isGA) ||
+            user?.isOwner) && (
+            <>
+              <HStack marginTop={10} w={'full'} space={7} px={7}>
+                <Button
+                  flex={1}
+                  _text={{bold: true}}
+                  isLoading={confirmLoading}
+                  borderRadius={10}
+                  onPress={user?.isGA ? handleQA : handleFixed}>
+                  Đã khắc phục
+                </Button>
+                {user?.isGA && !user?.isOwner ? (
+                  <Button
+                    flex={1}
+                    _text={{bold: true, color: 'custom.amber'}}
+                    bg="#F7F8F8"
+                    disabled={confirmLoading}
+                    onPress={navigation.goBack}
+                    borderRadius={10}
+                    px={7}>
+                    Huỷ bỏ
+                  </Button>
+                ) : (
+                  <Button
+                    flex={1}
+                    _text={{bold: true}}
+                    bg="custom.amber"
+                    isLoading={confirmLoading}
+                    borderRadius={10}
+                    isDisabled={error?.errorStatus === IErrorStatus.OPEN}
+                    onPress={handleNotFixed}>
+                    Chưa khắc phục
+                  </Button>
+                )}
+              </HStack>
+              {!user?.isGA && !user?.isOwner && (
+                <Center mt={5}>
+                  <Button
+                    flex={1}
+                    _text={{bold: true, color: 'custom.amber'}}
+                    bg="#F7F8F8"
+                    disabled={confirmLoading}
+                    onPress={navigation.goBack}
+                    borderRadius={10}
+                    px={7}>
+                    Huỷ bỏ
+                  </Button>
+                </Center>
+              )}
+              {user?.isOwner && (
+                <HStack marginTop={5} w={'full'} space={7} px={7}>
+                  <Button
+                    flex={1}
+                    _text={{bold: true}}
+                    bg="#0AB39C"
+                    isLoading={confirmLoading}
+                    borderRadius={10}
+                    isDisabled={error?.errorStatus === IErrorStatus.QA}
+                    onPress={handleQA}>
+                    Đánh giá lại
+                  </Button>
+                  <Button
+                    flex={1}
+                    _text={{bold: true, color: 'custom.amber'}}
+                    bg="#F7F8F8"
+                    disabled={confirmLoading}
+                    onPress={navigation.goBack}>
+                    Huỷ bỏ
+                  </Button>
+                </HStack>
+              )}
+            </>
+          )}
+        {((error?.errorStatus === IErrorStatus.QA &&
+          !!user?.isGA &&
+          !user?.isOwner) ||
+          (error?.errorStatus === IErrorStatus.OPEN &&
+            !user?.isGA &&
+            !user?.isOwner) ||
+          isReadOnly) && (
+          <Center m={5}>
+            <Button
+              flex={1}
+              _text={{bold: true, color: 'custom.amber'}}
+              bg="#F7F8F8"
+              disabled={confirmLoading}
+              borderRadius={10}
+              onPress={navigation.goBack}
+              px={7}>
+              Huỷ bỏ
+            </Button>
+          </Center>
+        )}
+
+        <Box h={4} />
+      </ScrollView>}
+    
+
+    </Box>
+  );
+};
+
+export default ErrorSituation;
