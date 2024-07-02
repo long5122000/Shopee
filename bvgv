@@ -1,0 +1,381 @@
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import {
+  Box,
+  ScrollView,
+  Text,
+  FlatList,
+  HStack,
+  Divider,
+  VStack,
+  Button,
+  Pressable,
+  Stack,
+} from 'native-base';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { RootStackParamList } from '~/routes';
+import SearchInput from './components/Search';
+import {
+  ErrorStatusBg,
+  ErrorStatusColor,
+  ErrorStatusNames,
+  IErrorAttributies,
+  IErrorStatus,
+} from '~/types/error';
+import LocationIcon from '~/assets/svgs/location.svg';
+import WorkIcon from '~/assets/svgs/work.svg';
+import Warning from '~/assets/svgs/warning.svg';
+import Chat from '~/assets/svgs/mark_chat_unread.svg';
+import { useErrors } from './hook';
+import { RefreshControl, Platform } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
+import { DateTime } from 'luxon';
+import NoData from '~/components/common/NoData';
+import SpinnerOverlay from 'react-native-loading-spinner-overlay';
+import { ITodoAttributies, ITodoLinkType } from '~/types/todo.d';
+import moment from 'moment';
+
+type IErrorListProps = NativeStackScreenProps<RootStackParamList, 'ErrorList'>;
+
+const ErrorList: React.FC<IErrorListProps> = ({ navigation }) => {
+  const isFocused = useIsFocused();
+  const [filters, setFilters] = useState<any>(null);
+  const [page, setPage] = useState<any>(1);
+  const flatListRef = useRef<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const allowChangePage = useRef(false); // Sử dụng useRef thay vì biến cục bộ
+  const onItemPress = (item: IErrorAttributies) => {
+    navigation.navigate('ErrorSituation', {
+      errorId: item.id,
+      formId: item.formId,
+    });
+  };
+
+  const [errorStatus, setErrorStatus] = useState<IErrorStatus | null>(null);
+
+  const {
+    data,
+    isFetching,
+    refetch,
+    isInitialLoading,
+  }: any = useErrors(errorStatus as string, filters, undefined, -1, 20, undefined, page);
+  console.log('isFetching', isFetching);
+  console.log('isLoading', isLoading);
+
+  const items = useMemo<any[]>(() => {
+    return ((data?.data || []) as any[]).map((f: any) => ({
+      id: f.id as string,
+      errorStatus: f.error_status as string,
+      branchName: f.branch_name as string,
+      branchId: f.branch_id as string,
+      branchGroup: f.branch_parent_name as string,
+      branchAddress: f.branch_address as string,
+      templateCode: f.template_code as string,
+      templateName: f.template_name as string,
+      formId: f.form_id as string,
+      reviewDate: f.review_date ? new Date(f.review_date as string) : undefined,
+      errorContent: f.error_content as string,
+      errorCurrentState: f.error_current_state as string,
+      deadline: f.deadline ? new Date(f.deadline) : undefined,
+      questionContent: f.question_content as string,
+      todos: f.todos as any[],
+      updatedAt: f.updated_at as any,
+      comment_count: f.comment_count as number
+    }));
+  }, [data?.data]);
+
+  const counters = useMemo(() => {
+    if (data?.data) {
+      return {
+        total: (data as any).totalCount as number,
+        open: (data as any).totalNotYet as number,
+        closed: (data as any).totalFixed as number,
+        qa: (data as any).totalQA as number,
+      };
+    }
+    return {
+      total: 0,
+      open: 0,
+      closed: 0,
+      qa: 0,
+    };
+  }, [data]);
+
+  const scrollToTop = () => {
+    flatListRef.current?.scrollToOffset({ animated: true, offset: 1 });
+  };
+
+  const handleRefresh = () => {
+    loadPrev();
+  };
+
+  const loadMore = async () => {
+    if (page < data?.totalPages && allowChangePage.current) {
+      setPage(page + 1);
+      allowChangePage.current = false;
+      refetch();
+    }
+  };
+
+  const loadPrev = async () => {
+    if (page > 1 && allowChangePage.current) {
+      allowChangePage.current = false;
+      setPage(page - 1);
+      refetch();
+    }
+  };
+
+  useEffect(() => {
+    scrollToTop();
+    if (!isFetching) {
+      allowChangePage.current = true;
+      setIsLoading(false);
+    } else {
+      setIsLoading(true);
+    }
+  }, [data, isFetching]);
+
+  useEffect(() => {
+    if (isFocused) {
+      refetch();
+    }
+  }, [isFocused, refetch]);
+
+  const handleFilter = (values: any) => {
+    setFilters({
+      ...(values?.search ? { search: values.search } : {}),
+      ...(values?.templateId ? { templateId: values.templateId } : {}),
+      ...(values?.branchId ? { branchIds: values.branchId } : {}),
+      ...(values?.zoneId ? { zoneIds: values.zoneId } : {}),
+      ...(values?.errorStatus ? { errorStatus: values.errorStatus } : {}),
+      ...(values?.startDate
+        ? { startDate: moment(values.startDate).startOf('d').toISOString() }
+        : {}),
+      ...(values?.endDate
+        ? { endDate: moment(values.endDate).endOf('d').toISOString() }
+        : {}),
+    });
+  };
+
+  const renderItem = ({ item }: { item: IErrorAttributies }) => (
+    <Stack mb={4} borderBottomWidth={1} borderBottomColor={'#ddd'}>
+      <Pressable
+        bg={ErrorStatusBg[item.errorStatus || '']}
+        py="4"
+        px="4"
+        borderRadius={10}
+        onPress={() => onItemPress(item)}>
+        <VStack space={2}>
+          <HStack justifyContent={'space-between'} space={2}>
+            <Text
+              bold
+              color="#1D1617"
+              numberOfLines={1}
+              flex={1}
+              fontWeight={'500'}
+              fontSize={14}>
+              {[item.templateCode, item.templateName]
+                .filter(i => !!i)
+                .join(' - ')}
+            </Text>
+            <Text color="#1D1617" fontSize={13}>
+              {item.reviewDate
+                ? DateTime.fromJSDate(item.reviewDate).toFormat('dd/MM/yyyy')
+                : ''}
+            </Text>
+          </HStack>
+          <VStack space={0.5}>
+
+            <Box>
+              <HStack justifyContent={'space-between'} space={2}>
+                <Text fontSize={13}>
+                  Trạng thái:{'  '}
+                  <Text
+                    color={ErrorStatusColor[item.errorStatus || '']}
+                    bold
+                    fontSize={'sm'}>
+                    {ErrorStatusNames[item.errorStatus || '']}
+                  </Text>
+                </Text>
+                {(item?.deadline instanceof Date && Date.now() > item.deadline.getTime() && item?.errorStatus !== 'fixed') ||
+                  (item?.deadline instanceof Date && item?.updated_at?.getTime() > item?.deadline?.getTime()) ? (
+                  <HStack space={1} alignItems="center" color="#F45656">
+                    <Warning width="16px" height="16px" />
+                    <Text color="#F45656">Quá hạn</Text>
+                  </HStack>
+                ) : null
+                }
+              </HStack>
+            </Box>
+            <Text fontSize={13} numberOfLines={4}>
+              Nội dung lỗi:{'  '}
+              <Text
+                color={ErrorStatusColor[item.errorStatus || '']}
+                fontSize={'sm'}>
+                {item.errorContent}
+              </Text>
+            </Text>
+
+
+
+
+          </VStack>
+          <Divider
+            bg={ErrorStatusColor[item.errorStatus || '']}
+            opacity={0.25}
+          />
+          <HStack justifyContent={'space-between'} alignItems={'center'}>
+            <Text color="#1D1617" numberOfLines={1} fontSize={13}>
+              <WorkIcon />
+              {` Chi nhánh: ${item.branchName || ''}`}
+            </Text>
+            <HStack space={1} alignItems="center">
+              <Chat width="14px" height="14px" style={{ marginTop: 2 }} />
+              <Text>{item?.comment_count}</Text>
+            </HStack>
+          </HStack>
+          <Text color="#1D1617" fontSize={13}>
+            <LocationIcon />
+            {` Địa chỉ: ${item.branchAddress || ''}`}
+          </Text>
+        </VStack>
+      </Pressable>
+
+      <Box mt={2}>
+        {(item.todos || []).map(i => (
+          <Pressable
+            key={i.id}
+            py={0.5}
+            onPress={() => navigation.navigate('CreateTodo', { todoId: i.id, branchId: i.branch_id })}>
+            <Text># {i.title}</Text>
+          </Pressable>
+        ))}
+      </Box>
+      <Pressable
+        py={2}
+        onPress={() => {
+          navigation.navigate('CreateTodo', {
+            linkType: ITodoLinkType.ERROR,
+            linkId: item.id,
+            content: item.questionContent,
+            title: item.errorContent,
+            branchId: item.branchId,
+          });
+        }}>
+        <Text bold color="#274DED" fontSize={14}>
+          + Thêm việc cần làm
+        </Text>
+      </Pressable>
+    </Stack>
+  );
+
+  const tabProps = useCallback(
+    (status: IErrorStatus | null) => {
+      const isActive = errorStatus === status;
+      return isActive
+        ? {
+          variant: 'solid',
+          bg: '#FF7648',
+          color: 'white',
+          borderRadius: 16,
+          py: 3,
+          px: 4,
+          _text: { bold: true },
+          _pressed: {
+            borderRadius: 16,
+          },
+          _focus: {
+            borderRadius: 16,
+          },
+        }
+        : {
+          variant: 'ghost',
+          color: '#A9A9A9',
+        };
+    },
+
+    [errorStatus],
+  );
+
+  return (
+    <VStack bg="custom.white" flex={1} safeAreaBottom>
+      {isLoading && <SpinnerOverlay visible={true} />}
+
+
+      <VStack px={4} space={4}>
+        <SearchInput handleFilter={handleFilter} />
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <HStack space={1}>
+            <Button
+              size={'sm'}
+              {...tabProps(null)}
+              px={2}
+              py={2}
+              onPress={() => {
+                setErrorStatus(null);
+                setPage(1);
+              }}>
+              {`Tất cả${counters.total > 0 ? `(${counters.total})` : ''}`}
+            </Button>
+            <Button
+              size={'sm'}
+              {...tabProps(IErrorStatus.QA)}
+              px={2}
+              py={2}
+              onPress={() => {
+                setErrorStatus(IErrorStatus.QA);
+                setPage(1);
+              }}>
+
+              {`Đánh giá lại${counters.qa > 0 ? `(${counters.qa})` : ''}`}
+            </Button>
+            <Button
+              size={'sm'}
+              {...tabProps(IErrorStatus.OPEN)}
+              px={2}
+              py={2}
+              onPress={() => {
+                setErrorStatus(IErrorStatus.OPEN);
+                setPage(1);
+              }}>
+              {`Chưa khắc phục${counters.open > 0 ? `(${counters.open})` : ''}`}
+            </Button>
+            <Button
+              size={'sm'}
+              {...tabProps(IErrorStatus.CLOSED)}
+              px={2}
+              py={2}
+              onPress={() => {
+                setErrorStatus(IErrorStatus.CLOSED);
+                setPage(1);
+              }}>
+              {`Đã khắc phục${counters.closed > 0 ? `(${counters.closed})` : ''}`}
+            </Button>
+          </HStack>
+        </ScrollView>
+      </VStack>
+      <Divider bg="#EBEBEB" marginY={5} />
+      <FlatList
+        ref={flatListRef} // Gán ref cho FlatList
+        px={4}
+        data={items}
+        renderItem={renderItem}
+        keyExtractor={item => item.id}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.01}
+        refreshControl={
+          <RefreshControl
+            refreshing={isFetching && !isInitialLoading}
+            onRefresh={handleRefresh}
+            // tintColor="#274ded"
+            // @ts-ignore
+            size={Platform.OS === 'android' ? 'default' : 8}
+          />
+        }
+        ListEmptyComponent={<NoData />}
+      />
+    </VStack>
+  );
+};
+
+export default ErrorList;
