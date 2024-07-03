@@ -1,0 +1,233 @@
+import {
+  Modal,
+  HStack,
+  Heading,
+  Pressable,
+  VStack,
+  Button,
+  Text,
+  Spinner,
+} from 'native-base';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import R from '~/assets';
+import SearchInput from '~/components/common/SearchInput';
+import { useI18n } from '~/providers/I18nProvider';
+import Close from '~/assets/svgs/close.svg';
+import More from '~/assets/svgs/more-v.svg';
+import { useForm, FormProvider, useWatch } from 'react-hook-form';
+import Select from '~/components/form/Select';
+import DatePicker from '~/components/form/DatePicker';
+import { IOption } from '~/components/common/Select';
+import { useTemplates } from '~/hooks/useTemplate';
+import { useBranches } from '~/hooks/useBranch';
+import { useZones } from '~/hooks/useZone';
+import { IZoneAttributies } from '~/types/zone';
+import { ITemplateAttributies } from '~/types/template';
+import { FormStatusOptions, IFormStatus } from '~/types/form';
+import DropDownIcon from '~/assets/svgs/dropdown.svg';
+import { useDebounce } from '~/hooks/helper/useDebounce';
+
+type IFormProps = {
+  search?: string;
+  templateId?: string;
+  status?: IFormStatus | string;
+  zoneId?: string;
+  branchId?: string;
+  startDate?: Date | string | null;
+  endDate?: Date | string | null;
+};
+
+type IProps = {
+  handleFilter: (values: IFormProps | boolean) => void;
+};
+
+const initValues: IFormProps = {
+  templateId: '',
+  status: '',
+  zoneId: '',
+  branchId: '',
+  startDate: null,
+  endDate: null,
+};
+
+const Search: React.FC<IProps> = ({ handleFilter }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const i18n = useI18n();
+  const [search, setSearch] = useState<string>();
+  const [isFiltered, setIsFiltered] = useState<boolean>(false);
+  const debouncedValue = useDebounce<string | undefined>(search, 1000);
+
+  const methods = useForm<IFormProps>({
+    defaultValues: initValues,
+  });
+  const { control, handleSubmit, reset, getValues } = methods;
+
+  const parseOption = (t: ITemplateAttributies | IZoneAttributies) => ({
+    value: t.id,
+    label: `${t.code}-${t.name}`,
+    branchIds: t.branchIds,
+    code: t.code,
+  });
+
+  const { data: templates, isFetching: fetchingTemplate } = useTemplates({
+    select: parseOption,
+  });
+  const { data: zones, isFetching: fetchingZone } = useZones({
+    select: parseOption,
+  });
+
+  const { data: branches, isFetching: fetchingBranch } = useBranches();
+  const selectedZoneId = useWatch({
+    control,
+    name: 'zoneId',
+  });
+
+  const childBranches = useMemo(() => {
+    if (!branches || !selectedZoneId) return branches
+      .filter((branch: any) => !branch.isGroup)
+      .map((branch: any) => ({
+        value: branch.id,
+        label: branch.name,
+        code: branch.code,
+      }));
+
+    const selectedZone = zones?.find((zone: any) => zone.value === selectedZoneId);
+    const zoneBranchIds = selectedZone?.branchIds || [];
+
+    return branches
+      .filter((branch: any) => zoneBranchIds.includes(branch.id))
+      .filter((branch: any) => !branch.isGroup)
+      .map((branch: any) => ({
+        value: branch.id,
+        label: branch.name,
+        code: branch.code,
+      }));
+  }, [branches, selectedZoneId, zones]);
+
+  const onSubmit = useCallback(
+    (values: IFormProps) => {
+      setIsOpen(false);
+      setIsFiltered(true);
+      handleFilter({ search, ...values });
+    },
+    [search],
+  );
+
+  const onCloseModal = useCallback(() => {
+    reset(initValues);
+    setSearch('');
+    handleFilter({});
+    setIsOpen(false);
+    setIsFiltered(false);
+  }, [reset, setIsFiltered, handleFilter]);
+
+  useEffect(() => {
+    const values = getValues();
+    handleFilter({ search, ...(isFiltered ? values : {}) });
+  }, [debouncedValue]);
+
+  return (
+    <>
+      <SearchInput
+        onFilterPress={() => setIsOpen(true)}
+        value={search}
+        onChangeText={setSearch}
+        isFiltered={isFiltered}
+      />
+      {isOpen && (
+        <Modal isOpen={isOpen} onClose={() => setIsOpen(false)}>
+          <Modal.Content bg="white">
+            <Modal.Body>
+              <HStack
+                mb={5}
+                justifyContent="space-between"
+                alignItems="center">
+                <Pressable onPress={() => setIsOpen(false)}>
+                  <Close />
+                </Pressable>
+                <Heading size="sm">{i18n.t(R.strings.search)}</Heading>
+                <Pressable>
+                  <More />
+                </Pressable>
+              </HStack>
+              <FormProvider {...methods}>
+                <VStack space={4}>
+                  {(fetchingTemplate || fetchingBranch || fetchingZone) && (
+                    <Spinner size="sm" />
+                  )}
+                  <Select
+                    control={control}
+                    name="templateId"
+                    SelectProps={{
+                      placeholder: 'Tìm kiếm: Tên, mã mẫu đánh giá ...',
+                      accessibilityLabel: i18n.t(R.strings.reviews_choose_template),
+                      options: templates as IOption[],
+                      dropdownIcon: <DropDownIcon style={{ marginRight: 5 }} />,
+                    }}
+                  />
+                  <Select
+                    control={control}
+                    name="status"
+                    SelectProps={{
+                      placeholder: 'Tìm kiếm: Tên, mã ...',
+                      accessibilityLabel: i18n.t(R.strings.reviews_status),
+                      options: FormStatusOptions,
+                      dropdownIcon: <DropDownIcon style={{ marginRight: 5 }} />,
+                    }}
+                  />
+                  <Select
+                    control={control}
+                    name="zoneId"
+                    SelectProps={{
+                      placeholder: 'Tìm kiếm: Tên, mã khu vực ...',
+                      accessibilityLabel: 'Chọn khu vực',
+                      options: zones as IOption[],
+                      dropdownIcon: <DropDownIcon style={{ marginRight: 5 }} />,
+                    }}
+                  />
+                  <Select
+                    control={control}
+                    name="branchId"
+                    SelectProps={{
+                      placeholder: 'Tìm kiếm: Tên, mã chi nhánh ...',
+                      accessibilityLabel: 'Chọn chi nhánh',
+                      options: childBranches,
+                      dropdownIcon: <DropDownIcon style={{ marginRight: 5 }} />,
+                    }}
+                  />
+                  <Text bold fontSize={12} width="100%">
+                    {i18n.t(R.strings.reviews_review_period)}
+                  </Text>
+                  <DatePicker control={control} name="startDate" />
+                  <DatePicker control={control} name="endDate" />
+                </VStack>
+              </FormProvider>
+              <HStack
+                alignItems="center"
+                justifyContent="space-around"
+                mt={5}>
+                <Button
+                  w={110}
+                  rounded="xl"
+                  bgColor="custom.grey"
+                  onPress={onCloseModal}
+                  _text={{ bold: true, color: 'custom.amber' }}>
+                  {i18n.t(R.strings.cancel)}
+                </Button>
+                <Button
+                  w={110}
+                  rounded="xl"
+                  _text={{ bold: true }}
+                  onPress={handleSubmit(onSubmit)}>
+                  {i18n.t(R.strings.search)}
+                </Button>
+              </HStack>
+            </Modal.Body>
+          </Modal.Content>
+        </Modal>
+      )}
+    </>
+  );
+};
+
+export default Search;
