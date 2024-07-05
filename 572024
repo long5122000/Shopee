@@ -1,0 +1,244 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Box,
+  Text,
+  Heading,
+  Button,
+  VStack,
+  useTheme,
+  useToast,
+  ScrollView,
+} from 'native-base';
+import { Keyboard } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
+import SwitchSelector from 'react-native-switch-selector';
+import Input from '~/components/form/Input';
+import PhoneInput from '~/components/form/PhoneInput';
+import { useForm } from 'react-hook-form';
+import { IUserLoginReq } from '~/types/users';
+import { useAuth } from '~/hooks/auth/useAuth';
+import { useLogin, useLoginByPhone } from './hook';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { RootStackParamList } from '~/routes';
+import { useI18n } from '~/providers/I18nProvider';
+import R from '~/assets';
+import { yupResolver } from '@hookform/resolvers/yup';
+import * as yup from 'yup';
+
+type ILoginProps = NativeStackScreenProps<RootStackParamList, 'Login'>;
+
+const options = [
+  {
+    value: 0,
+    label: 'Email',
+  },
+  {
+    value: 1,
+    label: 'Số điện thoại',
+  },
+];
+
+const Login: React.FC<ILoginProps> = ({ navigation }) => {
+  const { handleAfterAuthenticated } = useAuth();
+  const toast = useToast();
+  const i18n = useI18n();
+
+  const [tab, setTab] = useState<number>(0);
+  const [isConnected, setIsConnected] = useState<boolean>(true);
+  const { colors } = useTheme();
+  const { control, handleSubmit } = useForm<IUserLoginReq>({
+    defaultValues: {
+      email: '',
+      password: '',
+      phone: '',
+    },
+     // @ts-ignore
+    resolver: yupResolver(
+      yup
+        .object()
+        .shape({
+          ...(tab === 0
+            ? {
+                email: yup
+                  .string()
+                  .trim()
+                  .email(i18n.t(R.strings.login_emailError))
+                  .required(i18n.t('login.emailErrorRequired')),
+                password: yup
+                  .string()
+                  .required(i18n.t('login.passErrorRequired')),
+              }
+            : {}),
+          ...(tab === 1
+            ? {
+                phone: yup
+                  .string()
+                  .required(i18n.t('login.phoneErrorRequired')),
+              }
+            : {}),
+        })
+        .required(),
+    ),
+  });
+
+  const { mutateAsync: loginMutation, isLoading: loginLoading } = useLogin(
+    data => handleAfterAuthenticated(data),
+    e => {
+      toast.show({
+        description:
+          typeof e === 'string' ? e : i18n.t(R.strings.errors_login_faild),
+      });
+    },
+  );
+
+  const {
+    mutateAsync: loginPhoneMutation,
+    isLoading: loginPhoneLoading,
+  } = useLoginByPhone(
+    data => {
+      navigation.navigate('LoginOTP', { phone: data?.phone });
+    },
+    e => {
+      toast.show({
+        description:
+          typeof e === 'string' ? e : i18n.t(R.strings.errors_login_faild),
+      });
+    },
+  );
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state:any) => {
+      setIsConnected(state.isInternetReachable);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  const onSubmit = async (values: IUserLoginReq) => {
+    Keyboard.dismiss();
+    if (!isConnected) {
+      toast.show({
+        description: 'Không có kết nối mạng. Vui lòng kiểm tra lại.',
+      });
+      return;
+    }
+
+    if (tab === 0) {
+      await loginMutation(values);
+    } else {
+      await loginPhoneMutation(values);
+    }
+  };
+
+  return (
+    <Box bg="custom.blue" flex={1} safeAreaTop p={6}>
+      <ScrollView flex={1} keyboardShouldPersistTaps="handled">
+        <VStack space={1} mt="7" mb="5">
+          <Heading color="white">Đăng Nhập</Heading>
+          <Text color="#AEC2FC">Xin chào, chào mừng bạn quay trở lại</Text>
+        </VStack>
+        <SwitchSelector
+          options={options}
+          initial={tab}
+          value={tab}
+          backgroundColor="#2D4B9E"
+          borderColor="#2D4B9E"
+          buttonColor={colors.primary['50']}
+          selectedColor={colors.primary['50']}
+          textColor="#0D266B"
+          selectedTextStyle={{ color: '#0D266B' }}
+          hasPadding
+          onPress={value => setTab(value as number)}
+        />
+
+        <VStack space={6} mt="16">
+          {tab === 0 ? (
+            <>
+              <Input
+                label="Email"
+                name="email"
+                control={control}
+                formControlLabel={{
+                  _text: {
+                    bold: true,
+                    color: 'white',
+                    fontSize: 'md',
+                  },
+                }}
+                inputProps={{
+                  variant: 'underlined',
+                  placeholder: i18n.t(R.strings.login_emailPlaceholder),
+                  placeholderTextColor: '#3E57A1',
+                  size: 'md',
+                  color: '#9DCEFF',
+                  tintColor: 'white',
+                  _input: {
+                    selectionColor: 'white',
+                    cursorColor: 'white',
+                  },
+                }}
+              />
+              <Input
+                label="Mật khẩu"
+                name="password"
+                control={control}
+                formControlLabel={{
+                  _text: {
+                    bold: true,
+                    color: 'white',
+                    fontSize: 'md',
+                  },
+                }}
+                inputProps={{
+                  variant: 'underlined',
+                  placeholder: i18n.t(R.strings.login_passPlaceholder),
+                  placeholderTextColor: '#3E57A1',
+                  type: 'password',
+                  size: 'md',
+                  color: '#9DCEFF',
+                  _input: {
+                    selectionColor: 'white',
+                    cursorColor: 'white',
+                  },
+                }}
+              />
+            </>
+          ) : (
+            <PhoneInput
+              control={control}
+              name="phone"
+              label="Số điện thoại"
+              inputProps={{
+                placeholder: i18n.t(R.strings.login_phonePlaceholder),
+                placeholderTextColor: '#3E57A1',
+                selectionColor: 'white',
+                cursorColor: 'white',
+              }}
+            />
+          )}
+        </VStack>
+
+        <Button
+          bg="red.500"
+          rounded={'3xl'}
+          p={3}
+          mt={20}
+          isLoading={loginLoading || loginPhoneLoading}
+          _text={{
+            bold: true,
+            color: 'white',
+            fontSize: 16,
+          }}
+          onPress={handleSubmit(onSubmit)}
+          // isDisabled={!isConnected}
+        >
+          {tab === 0 ? 'Đăng Nhập' : 'Lấy OTP'}
+        </Button>
+      </ScrollView>
+    </Box>
+  );
+};
+
+export default Login;
