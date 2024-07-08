@@ -1,0 +1,772 @@
+import { yupResolver } from '@hookform/resolvers/yup';
+import { CommonActions } from '@react-navigation/native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { first, isEmpty } from 'lodash';
+import {
+  Platform,
+} from 'react-native';
+import { Actionsheet, Box, Button, Divider, HStack, Heading, Icon, Input, Pressable, Text, VStack, useDisclose, useToast, Flex, ScrollView, Center } from 'native-base';
+import { Ionicons } from '@expo/vector-icons';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useForm } from 'react-hook-form';
+import FlashMessage from 'react-native-flash-message';
+import R from '~/assets';
+import DialogAlert from '~/components/common/DialogAlert';
+import { OverlayLoading } from '~/components/common/OverlayLoading';
+import { useAuth } from '~/hooks/auth/useAuth';
+import { useDebounce } from '~/hooks/helper/useDebounce';
+import { useI18n } from '~/providers/I18nProvider';
+import { RootStackParamList } from '~/routes';
+import { IAnswerType, IFormStatus } from '~/types/form';
+import { sleep, toSearchString } from '~/utils/helper';
+import Header from './components/Header';
+import QuestionList from './components/QuestionList';
+import { RateConfigModal } from './components/RateConfigModal';
+import ResultModal from './components/ResultModal';
+import {
+  confirmRequest,
+  useConfirm,
+  useFormDetail,
+  useFormLogsByFormId,
+  useRateConfig,
+  useReview,
+  useUploadImages,
+} from './hook';
+import styled from 'styled-components/native';
+import { FormSchema } from './schemas';
+import { IImage } from '~/types/image';
+import Expand from '~/assets/svgs/expand_circle_up.svg';
+import Search from '~/assets/svgs/search.svg';
+type IReviewProps = NativeStackScreenProps<RootStackParamList, 'Review'>;
+
+export type IAnswer = {
+  id: string;
+  answer: string;
+  answerId: string;
+  answerNote: string;
+  answerImages: IImage[];
+  originId: string;
+  templateQuestionId: string;
+  content: string;
+  assessmentType: string;
+  allowNA: boolean;
+  requireNote: boolean;
+  requireImage: boolean;
+  point: number;
+  code: string;
+  note: string;
+  countRepeat: number;
+  checkRepeat: boolean;
+  // groupId: string;
+  error: string;
+};
+
+export type IAnswerForm = {
+  note: string;
+  questions: {
+    [T: string]: IAnswer;
+  };
+};
+
+const Review: React.FC<IReviewProps> = ({ route, navigation }) => {
+  const { formId } = route.params;
+
+  const isEditting = useMemo(
+    () => !!route.params.formId,
+    [route.params.formId],
+  );
+
+  const [selectedGroupCode, setSelectedGroupCode] = useState('');
+  const [searchText, setSearchText] = useState('');
+  const toast = useToast();
+  const resultDialogProps = useDisclose(false);
+  const rateConfigDialogProps = useDisclose(false);
+
+  const [selectedQuestion, setSelectedQuestion] = useState<any>();
+  const [isCompleting, setIsCompleting] = useState(false);
+  const [isSaving, setIsSaving] = useState(true);
+  const i18n = useI18n();
+  const { user } = useAuth();
+  // BQA-98
+  const isListReviewsAccess = user?.rules.fn_review;
+
+  const { mutateAsync: uploadImages, isLoading: isUploading } = useUploadImages();
+
+  const onError = useCallback(() => {
+    toast.show({
+      description: i18n.t(R.strings.errors_has_err),
+    });
+    // navigation.goBack();
+  }, [toast, navigation]);
+
+  const { data, isInitialLoading: isFormFetching } = useFormDetail(
+    onError,
+    formId,
+    // formId,
+    // selectedGroupId,
+  );
+
+  const { data: formLogData, isInitialLoading: isFormLogsFetching } =
+    useFormLogsByFormId(onError, formId);
+
+  const { data: rateConfig } = useRateConfig(data?.rateConfigId, onError);
+  const questions = useMemo(() => data?.questions || [], [data?.questions]);
+  const [open, setOpen] = useState(false);
+  const [formResult, setFormResult] = useState({});
+  const params = useMemo(
+    () => ({
+      searchText,
+      groupCode: selectedGroupCode,
+    }),
+    [searchText, selectedGroupCode],
+  );
+
+  const debouncedQueryParams = useDebounce<{
+    searchText: string;
+    groupCode: string;
+  }>(params);
+
+  const filteredQuestions = useMemo(() => {
+    return questions.filter(
+      (item: any) =>
+        (!debouncedQueryParams.groupCode ||
+          item.questionGroupCode === debouncedQueryParams.groupCode) &&
+        toSearchString(item.content).includes(
+          toSearchString(debouncedQueryParams.searchText),
+        ),
+    );
+  }, [
+    debouncedQueryParams.groupCode,
+    questions,
+    debouncedQueryParams.searchText,
+  ]);
+
+  const methods = useForm<IAnswerForm>({
+    defaultValues: {
+      note: '',
+      questions: (data?.questions || []).reduce(
+        (acc: any, q: any) => ({
+          ...acc,
+          [q.id]: {
+            id: q.id,
+            answer: q?.answer,
+            answerId: q?.answerId,
+            answerNote: q?.answerNote,
+            answerImages: q?.answerImages,
+            point: q?.point || 0,
+            requireNote: q?.requireNote || false,
+            requireImage: q?.requireImage || false,
+            repeat: q.repeat,
+            checkRepeat: q.checkRepeat,
+            countRepeat: q.countRepeat,
+          },
+        }),
+        {},
+      ),
+    },
+    // @tsignore
+    resolver: yupResolver(FormSchema as any),
+  });
+
+  const formValues = methods.watch();
+
+  const isEditable = useMemo(
+    () =>
+      (user?.id === data?.reviewUserId || user?.isOwner) &&
+      data?.status &&
+      [IFormStatus.DRAFT, IFormStatus.REFUSE].includes(
+        data.status as IFormStatus,
+      ),
+    [data?.status, user?.id, data?.reviewUserId],
+  );
+
+  useEffect(() => {
+    methods.reset({
+      note: data?.note,
+      questions: (data?.questions || []).reduce((acc: any, q: any) => {
+        const selectedAnswer = q?.answers?.find(
+          (a: any) => a.id === q.answerId,
+        );
+        return {
+          ...acc,
+          [q.id]: {
+            id: q.id,
+            answer: q?.answer,
+            answerId: q?.answerId,
+            answerNote: q?.answerNote,
+            answerImages: q?.answerImages,
+            point: q?.point || 0,
+            requireNote: selectedAnswer?.require_note || false,
+            requireImage: selectedAnswer?.require_image || false,
+            repeat: q.repeat,
+            checkRepeat: q.checkRepeat,
+            countRepeat: q.countRepeat,
+          },
+        };
+      }, {}),
+    });
+
+    if (isEditable) return;
+
+    setFormResult({
+      pass: data?.resultPass || 0,
+      faild: data?.resultFaild || 0,
+      cpp: 0,
+      risk: 0,
+
+      rate: data?.resultRate || 0,
+
+      noPassQuestions: (data?.questions || []).reduce((acc, q) => {
+        const answer = q.answers.find((a: any) => a.id === q.answerId);
+        if (!answer || answer.type !== IAnswerType.PASS) return acc;
+        return acc + 1;
+      }, 0),
+      noFailedQuestions: (data?.questions || []).reduce((acc, q) => {
+        const answer = q.answers.find((a: any) => a.id === q.answerId);
+        if (!answer || answer.type !== IAnswerType.FAILED) return acc;
+        return acc + 1;
+      }, 0),
+      noAnsweredQuestions: (data?.questions || []).filter(q => !!q.answerId)
+        .length,
+      noQuestions: (data?.questions || []).length,
+      result: data?.result,
+    });
+  }, [data, isEditable]);
+
+
+  const onSaveSuccess = () => {
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 1,
+        routes: [
+          { name: 'Main' },
+          {
+            name: 'ReviewList',
+          },
+        ],
+      }),
+    );
+  };
+
+  const onSaveError = useCallback(
+    () =>
+      toast.show({
+        description: i18n.t(R.strings.errors_has_err),
+      }),
+    [toast],
+  );
+
+  const { mutateAsync: reviewMutation, isLoading: isReviewing } = useReview(
+    data => {
+      setFormResult(data as any);
+      resultDialogProps.onOpen();
+    },
+    onSaveError,
+  );
+
+  const { mutateAsync: confirmMutation, isLoading: confirmLoading } = useConfirm(
+    onSaveSuccess,
+    onSaveError,
+  );
+  useEffect(() => {
+    if (!data || (!!data && data.status !== IFormStatus.DRAFT) || !formId || isCompleting) {
+      return;
+    }
+
+    let interval: any;
+
+    const startInterval = () => {
+      interval = setInterval(async () => {
+        const values = methods.getValues();
+        const questions = (Object.values(values.questions) as IAnswer[]).filter(
+          q => !!q.answerId,
+        );
+        if (!questions?.length) {
+          return;
+        }
+        setIsSaving(true);
+
+        try {
+          await confirmRequest({
+            id: formId as string,
+            body: {
+              // status: 'draft',
+              note: values.note,
+              questions: (questions || []).map(q => ({
+                id: q.id,
+                ...(q.answerId ? { answer_id: q.answerId } : {}),
+                ...(q.answerNote ? { answer_note: q.answerNote } : {}),
+                ...(q.answerImages ? { answer_images: q.answerImages.map(i => i.id) } : {}),
+              })),
+            },
+          });
+        } catch (error) {
+          // Handle error if needed
+        } finally {
+          setIsSaving(false);
+        }
+      }, 30000);
+    };
+
+    if (!resultDialogProps.isOpen || !rateConfigDialogProps.isOpen) {
+      startInterval();
+    }
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [resultDialogProps, rateConfigDialogProps, questions, formId, data?.status, isCompleting]);
+
+
+  const questionListRef = useRef<{
+    scrollToIndex: (index: number) => void;
+  }>();
+
+  useEffect(() => {
+    if (!isEditting) return;
+
+    const index = filteredQuestions.findIndex((item: any) => {
+      return item.answer === 'faild' || item.answer === 'null';
+    });
+    if (index !== -1) {
+      questionListRef.current?.scrollToIndex(index);
+    }
+  }, [filteredQuestions, isEditting]);
+
+  useEffect(() => {
+    const questionErrors = methods.formState.errors.questions;
+    if (!questionErrors || isEmpty(questionErrors)) return;
+
+    const keys = Object.keys(questionErrors);
+    const index = questions.findIndex(q => q.id === first(keys));
+
+    if (index === -1) return;
+    questionListRef.current?.scrollToIndex(index);
+  }, [methods.formState.errors.questions]);
+
+  const saveDraft = () => {
+    const values = methods.getValues();
+    const questions = (Object.values(values.questions) as IAnswer[]).filter(
+      q => !!q.answerId,
+    );
+
+    confirmMutation({
+      id: formId as string,
+      body: {
+        note: values.note,
+        questions: (questions || []).map(q => ({
+          id: q.id,
+          ...(q.answerId ? { answer_id: q.answerId } : {}),
+          ...(q.answerNote ? { answer_note: q.answerNote } : {}),
+          ...(q.answerImages
+            ? { answer_images: q.answerImages.map(i => i.id) }
+            : {}),
+        })),
+      },
+    });
+  };
+
+  const saveComplete = async (values: any) => {
+    const questions = Object.values(values.questions) as IAnswer[];
+    confirmMutation({
+      id: formId as string,
+      body: {
+        status: IFormStatus.CONFIRMING,
+        note: values.note,
+        questions: (questions || []).map(q => ({
+          id: q.id,
+          ...(q.answerId ? { answer_id: q.answerId } : {}),
+          ...(q.answerNote ? { answer_note: q.answerNote } : {}),
+          ...(q.answerImages
+            ? { answer_images: q.answerImages.map(i => i.id) }
+            : {}),
+        })),
+      },
+    });
+  };
+
+  const onSave = () => {
+    if (isCompleting) {
+      methods.handleSubmit(saveComplete)();
+    } else {
+      saveDraft();
+    }
+  };
+
+  const handleComplete = async () => {
+    setSelectedGroupCode('');
+    setSearchText('');
+
+    const uncompletedQuestions = questions.filter(
+      q => !formValues.questions[q.id]?.answerId,
+    );
+    const isMissing = uncompletedQuestions.length > 0;
+    if (isMissing) {
+      toast.show({
+        description: 'Bạn chưa hoàn thành hết đánh giá.',
+      });
+
+      const index = questions.findIndex(
+        q => q.id === first(uncompletedQuestions)?.id,
+      );
+
+      if (index === -1) return;
+
+      await sleep(1000);
+      questionListRef.current?.scrollToIndex(index);
+      return;
+    }
+
+    setIsCompleting(true);
+    onReviewForm();
+  };
+
+  const onReviewForm = () => {
+    reviewMutation({
+      id: formId as string,
+      body: {
+        questions: Object.values(formValues.questions)
+          .filter(i => !!i.answerId)
+          .map(q => ({
+            id: q.id,
+            answer_id: q.answerId,
+          })),
+      },
+    });
+  };
+
+  const handleCloseResultModal = useCallback(() => {
+    resultDialogProps.onClose();
+    setIsCompleting(false);
+  }, []);
+
+  const onCancelForm = useCallback(
+    () =>
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 1,
+          routes: [
+            { name: 'Main' },
+            {
+              name: 'ReviewList',
+            },
+          ],
+        }),
+      ),
+    [navigation],
+  );
+
+  const isLoading = useMemo(
+    () =>
+      (isFormFetching && isEditting) ||
+      isUploading ||
+      confirmLoading ||
+      (isFormLogsFetching && isEditting) ||
+      methods.formState.isSubmitting ||
+      isReviewing,
+    [
+      isFormFetching,
+      isFormLogsFetching,
+      isUploading,
+      confirmLoading,
+      isEditting,
+      methods.formState.isSubmitting,
+      isReviewing,
+    ],
+  );
+
+  const handleChangeQuestionSelect = (itemValue: string) => {
+    setSelectedGroupCode(itemValue);
+  };
+
+  const onPressQuestionTitle = useCallback((item: any) => {
+    setSelectedQuestion(item);
+  }, []);
+
+  const onCloseNoteDialog = useCallback(() => {
+    setSelectedQuestion(undefined);
+  }, []);
+
+  const isOpenNoteDialog = useMemo(
+    () => !!selectedQuestion && !!selectedQuestion.note,
+    [selectedQuestion?.note],
+  );
+
+  // const Answer:any = data?.questions[1].answers.map(item => ({
+  //   id: item.id,
+  //   name: item.name
+  // }));
+
+
+
+  let naCount = 0;
+  let passCount = 0;
+  let failedCount = 0;
+  let defaultCount = 0;
+
+  const items = Object.keys(formValues.questions).map((questionId, index) => {
+    const Answer: any = data?.questions?.find((q: any) => q.id === questionId)?.answers.map(item => ({
+      id: item.id,
+      type: item.type,
+    }));
+    const formValue = formValues.questions[questionId];
+    const matchingAnswer = Answer.find((answer: any) => answer.id === formValue.answerId);
+    const bgColor = matchingAnswer
+      ? matchingAnswer.type === "na"
+        ? (naCount++, "#FFB110")
+        : matchingAnswer.type === "pass"
+          ? (passCount++, "#567DF4")
+          : matchingAnswer.type === "failed"
+            ? (failedCount++, "#F45656")
+            : (defaultCount++, "#A9A9A9")
+      : (defaultCount++, "#A9A9A9");
+
+
+
+    return (
+      <Box key={index} p={1}>
+        <Box
+          bg={bgColor}
+          width="24px"
+          height="24px"
+          borderRadius="full"
+          alignItems="center"
+          justifyContent="center"
+        >
+          <Text
+            flex={1}
+            height="100%"
+            width="100%"
+            textAlign="center"
+            lineHeight="23px"
+            fontSize="xs"
+            color="white"
+
+            onPress={() => {
+              handleQuestionSelect(questionId);
+              setOpen(false);
+            }}
+          >
+            {index + 1}
+          </Text>
+        </Box>
+      </Box>
+    );
+  });
+  const scrollToQuestion = (questionId: any) => {
+    if (questionListRef.current) {
+      const index = questions.findIndex(q => q.id === questionId);
+      if (index === -1) return;
+      questionListRef.current.scrollToIndex(index + 1);
+    }
+  };
+
+
+  const handleQuestionSelect = (questionId: any) => {
+    setSelectedQuestion(questionId);
+    scrollToQuestion(questionId);
+  };
+  return (
+    <>
+      <FlashMessage position="top" />
+      <Header
+        navigation={navigation}
+        route={route}
+        title={data?.templateName}
+        onCancel={onCancelForm}
+        disableBack
+      />
+      {!!formResult && (
+        <ResultModal
+          {...resultDialogProps}
+          isSubmitting={methods.formState.isSubmitting}
+          isListReviewsAccess={isListReviewsAccess}
+          isCompleteing={isCompleting}
+          onClose={handleCloseResultModal}
+          onSave={onSave}
+          onOpenRateConfigModal={rateConfigDialogProps.onOpen}
+          initValues={questions}
+          formId={formId as any}
+          isEditable={isEditable as any}
+          formLogData={formLogData}
+          rateConfig={rateConfig}
+          control={methods.control as any}
+          formResult={formResult}
+        />
+      )}
+      <RateConfigModal {...rateConfigDialogProps} rateConfig={rateConfig} />
+      <DialogAlert
+        open={isOpenNoteDialog}
+        description={selectedQuestion?.note}
+        onClose={onCloseNoteDialog}
+      />
+      <OverlayLoading isLoading={isLoading} />
+      {/* <SpinnerOverlay visible={isLoading} /> */}
+
+      <Box bg="custom.white" flex={1}>
+        <QuestionList
+          ref={questionListRef}
+          isEdittingForm={isEditting}
+          questions={filteredQuestions}
+          isEditable={!!isEditable}
+          control={methods?.control}
+          onPressItemTitle={onPressQuestionTitle}
+          branchAddress={data?.branchAddress}
+          branchName={data?.branchName}
+          branchParentName={data?.branchParentName}
+          reviewUser={data?.reviewUser}
+          formData={data}
+          onChangeGroupCode={handleChangeQuestionSelect}
+          selectedGroupCode={selectedGroupCode}
+          searchText={searchText}
+          onChangeSearchText={setSearchText}
+        />
+
+        {isEditable ? (
+          <Box safeAreaBottom px={4} py={3}>
+            <HStack space={5} alignItems={'center'}>
+
+              <Button
+                colorScheme="dark"
+                flex={1}
+                textAlign={'center'}
+                _text={{ bold: true }}
+                disabled={confirmLoading || !isListReviewsAccess || isSaving}
+                borderRadius={10}
+                onPress={onReviewForm}
+              >
+                {isSaving ? 'Đang tự động lưu ...' : 'Lưu nháp'}
+
+              </Button>
+
+
+              <Box flex={1} alignContent={'center'} justifyContent={'center'}>
+                <Pressable
+                  width={53}
+                  height={53}
+                  mt="-20"
+                  // shadow={1}
+                  // borderRadius={53}
+                  // bg="primary.400"
+                  alignSelf={'center'}
+                  alignItems={'center'}
+                  justifyContent={'center'}
+                  onPress={() => {
+
+                    setOpen(true);
+
+                  }}
+                >
+                  <Expand />
+                </Pressable>
+                <Actionsheet isOpen={open} onClose={() => setOpen(false)}>
+                  <Actionsheet.Content bg="white">
+                    <VStack my="2" space={5} w="100%" maxW="360px" divider={<Box px="2"><Divider /></Box>}>
+                      <VStack w="100%" space={5} alignSelf="center">
+                        <Input variant="filled" placeholder="Tìm kiếm..."
+                          bg={'white'}
+                          borderWidth={1}
+                          fontSize="14"
+                          selectionColor={'white'} value={searchText}
+                          onChangeText={setSearchText} width="100%" borderColor={"#F2F2F2"} borderRadius="20" px="4" InputLeftElement={<Box ml={2}>
+                            <Search />
+                          </Box>} _input={{
+                            keyboardType: Platform.OS === 'ios' ? 'web-search' : 'default',
+                          }} />
+                        <Heading size="sm" textAlign="left" >
+                          Nội dung đánh giá
+                        </Heading>
+
+
+                        <Flex direction="row" mb="2.5" mt="1.5">
+                          <Text fontSize="sm" >Tổng số câu hỏi đánh giá: <Text bold>{data?.questions?.length}</Text>   </Text>
+                          <Box px={1}>
+                            <Box bg="#EEF7FE" px={3} py={0} borderRadius={20}>
+                              <Text fontSize="xs" color="#567DF4">{passCount}</Text>
+                            </Box>
+                          </Box>
+                          <Box px={1} >
+                            <Box bg="#FEFBEC" px={3} py={0} borderRadius={20}>
+                              <Text fontSize="xs" color="#FFB110">{naCount}</Text>
+                            </Box>
+                          </Box>
+                          <Box px={1}>
+                            <Box bg="#FEEEEE" px={3} py={0} borderRadius={20}>
+                              <Text fontSize="xs" color="#F45656">{failedCount}</Text>
+                            </Box>
+                          </Box>
+                          <Box px={1}>
+                            <Box bg="#E7E7E7" px={3} py={0} borderRadius={20}>
+                              <Text fontSize="xs" color="#A9A9A9">{defaultCount}</Text>
+                            </Box>
+                          </Box>
+                        </Flex>
+
+
+                      </VStack>
+
+                    </VStack>
+                    <ScrollView h="140px" my="2">
+                      <VStack space={5} w="100%" maxW="350px" overflowX="auto" overflowY="auto" divider={<Box px="2"><Divider /></Box>}>
+                        <VStack w="100%" space={5} alignSelf="center">
+                          <Box >
+                            <Flex direction="row" gap="4px" alignItems="center" mb="2.5" mt="1.5" wrap="wrap">
+                              {items}
+                            </Flex >
+                          </Box>
+
+
+
+                        </VStack>
+
+                      </VStack>
+                    </ScrollView>
+
+                  </Actionsheet.Content>
+                </Actionsheet>
+
+              </Box>
+              <Button
+                flex={1}
+                width="2000px"
+                _text={{ bold: true }}
+                borderRadius={10}
+                disabled={confirmLoading || !isListReviewsAccess || isSaving}
+                onPress={handleComplete}>
+
+                {isSaving ? 'Đang tự động lưu ...' : 'Hoàn thành'}
+              </Button>
+              {/* <Pressable
+                width={8}
+                height={8}
+                bg="custom.grey"
+                alignItems={'center'}
+                justifyContent={'center'}
+                onPress={resultDialogProps.onOpen}
+                rounded={'sm'}>
+                <More />
+              </Pressable> */}
+            </HStack>
+          </Box>
+        ) : (
+          <Box safeAreaBottom px={4} py={3}>
+            <HStack
+              space={10}
+              alignItems={'center'}
+              style={{ justifyContent: 'center' }}>
+              <Button
+                _text={{ bold: true }}
+                borderRadius={10}
+                disabled={confirmLoading}
+                onPress={resultDialogProps.onOpen}>
+                Xem kết quả
+              </Button>
+            </HStack>
+          </Box>
+        )}
+      </Box>
+    </>
+  );
+};
+
+export default React.memo(Review);
