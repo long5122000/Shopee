@@ -1,0 +1,107 @@
+import React, { useMemo, useEffect } from 'react';
+import Select from '~/components/form/Select';
+import { VStack } from 'native-base';
+import { useController, useFormContext } from 'react-hook-form';
+import { useBrancheUser } from '~/hooks/useBranch';
+import { nullFormat } from 'numeral';
+
+const BranchGroup: React.FC<{
+  control: any;
+  branches: any[];
+  zones?: any[];
+}> = ({ control, branches, zones }) => {
+  const { field: fieldZone } = useController({ name: 'zone_id', control });
+  console.log('fieldZone', fieldZone);
+  const { field: fieldParent } = useController({ name: 'branch_group_id', control });
+  const { field: fieldUser } = useController({ name: 'branch_id', control });
+
+  const branchId = fieldUser.value;
+  const { setValue } = useFormContext();
+
+  const { data: branchUserData, isLoading, error } = useBrancheUser(branchId);
+  // Use effect to reset the branch field if zone is not selected
+  useEffect(() => {
+    if (!fieldZone.value) {
+      setValue('branch_id', '');
+    }
+  }, [fieldZone.value, setValue]);
+
+  const parentBranches = useMemo(() => {
+    if (fieldZone.value && fieldZone.value !== "") {
+      const zoneBranchIds = zones?.find(z => z.value === fieldZone.value)?.branchIds;
+
+      return branches
+        ?.filter(b => b.isGroup)
+        .filter(b => (zoneBranchIds ? zoneBranchIds.includes(b.id) : true))
+        .map(b => ({
+          value: b.id,
+          label: b.name,
+          code: b.code,
+        })) || [];
+    }
+    return [];
+  }, [branches, zones, fieldZone.value]);
+
+  const childBranches = useMemo(() => {
+    if (parentBranches.length > 0) {
+      const zoneBranchIds = fieldZone.value && fieldZone.value !== "" ? zones?.find(z => z.value === fieldZone.value)?.branchIds : null;
+      const parentBranchId = fieldParent.value;
+      return branches
+        ?.filter(b => !b.isGroup)
+        .filter(b => (parentBranchId  ? b.parentId === parentBranchId :null))
+        .filter(b => b.zoneId ===  fieldZone.value )
+        .map(b => ({
+          value: b.id,
+          label: b.name,
+          code: b.code,
+        })) || [];
+    }
+    return [];
+  }, [branches, zones, fieldZone.value, fieldParent.value, parentBranches]);
+
+  const userOptions = useMemo(() => {
+    if (branchUserData && branchUserData.length > 0) {
+
+      return branchUserData?.filter((x: any)=>(x.deleted_at == null && x.status === "activate" )).map((data: any) => ({
+        value: data.id,
+        label: data.fullname || 'Unnamed', // Fallback to a default label if needed
+        code: data.code || 'No Code', // Fallback to a default code if needed
+      }));
+    }
+    return [];
+  }, [branchUserData]);
+
+  return (
+    <VStack space={4}>
+      <Select
+        control={control}
+        name="branch_group_id"
+        SelectProps={{
+          placeholder: 'Tìm kiếm: Tên, mã nhóm chi nhánh...',
+          accessibilityLabel: 'Chọn nhóm chi nhánh',
+          options: parentBranches,
+        }}
+      />
+      <Select
+        control={control}
+        name="branch_id"
+        SelectProps={{
+          placeholder: 'Tìm kiếm: Tên, mã chi nhánh...',
+          accessibilityLabel: 'Chọn chi nhánh',
+          options: childBranches,
+        }}
+      />
+      <Select
+        control={control}
+        name="approved_user_id"
+        SelectProps={{
+          placeholder: 'Tìm kiếm: Tên, mã ...',
+          accessibilityLabel: 'Chọn người dùng phê duyệt',
+          options: userOptions,
+        }}
+      />
+    </VStack>
+  );
+};
+
+export default BranchGroup;
