@@ -1,0 +1,29 @@
+import { VStack, Heading, Text, Pressable } from 'native-base';
+import React from 'react';
+
+export const PickArea: React.FC<{ onOpen: () => void; disabled?: boolean }> = React.memo(
+  ({ onOpen, disabled }) => {
+    return (
+      disabled ? null : (
+        <Pressable onPress={onOpen} disabled={disabled}>
+          <VStack
+            width="100%"
+            bg="#F0F0F0"
+            space={1}
+            borderRadius={11}
+            minH={30}
+            alignItems="center"
+            px={6}
+            py={6}
+            mt={2}
+          >
+            <Heading size={'sm'}>Upload file</Heading>
+            <Text textAlign={'center'}>
+              Recommended size: JPG, PNG, GIF (1500x1500px, Max 10mb)
+            </Text>
+          </VStack>
+        </Pressable>
+      )
+    );
+  }
+);
