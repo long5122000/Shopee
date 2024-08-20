@@ -1,0 +1,68 @@
+import {useMutation, useQuery} from '@tanstack/react-query';
+import GetLocation from 'react-native-get-location';
+import httpClient from '~/libs/http-client';
+import { ITemplateAttributies } from '~/types/template';
+
+const createFormRequest = async (body: any): Promise<{data: any}> => {
+  const location = await GetLocation.getCurrentPosition({
+    enableHighAccuracy: true,
+    timeout: 3000,
+  }).catch(() => null);
+  return httpClient.json.post('form/create', {
+    ...body,
+    latitude: location?.latitude,
+    longitude: location?.longitude,
+  });
+};
+
+export const useFormCreate = (
+  onSuccess: (data: any) => void,
+  onError: (error: any) => void,
+) =>
+  useMutation({
+    onSuccess,
+    onError,
+    mutationFn: createFormRequest,
+  });
+
+  export const fetchTemplates = (department_id: string): Promise<{ data: any }> => {
+    return httpClient.jsonV2.get(`user/list/template?department_id=${department_id}`);
+  };
+  
+  export const useTemplates = (department_id: string) => useQuery(
+    ['user/list/template', department_id], 
+    () => fetchTemplates(department_id),
+    {
+      
+        select: (data: any) => data.map((d: any) => ({
+          value: d.id,
+          label: d.name,
+          code: d.code,
+        })),
+      
+     
+      enabled: !!department_id, 
+      retry: 2,
+    }
+  );
+  export const fetchBranchs = (department_id: string, is_group: string,parent_id:string): Promise<{ data: any }> => {
+    return httpClient.jsonV2.get(`user/list/branch?department_id=${department_id}&is_group=${is_group}&parent_id=${parent_id}`);
+  };
+  
+  // Custom hook to fetch and transform branch data
+  export const useFetchBranchs = (department_id: string, is_group: string,parent_id:string) =>
+    useQuery(
+      ['user/list/branch', department_id, is_group,parent_id], 
+      () => fetchBranchs(department_id, is_group,parent_id),  
+      {
+        select: (data: any) =>
+          data.map((d: any) => ({
+            value: d.id,
+            label: d.name,
+            code: d.code,
+          })),
+        enabled: !!department_id && !!is_group,
+        retry: 2,
+      }
+    );
+ 
