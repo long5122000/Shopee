@@ -1,0 +1,288 @@
+import React, {useCallback, useEffect, useMemo} from 'react';
+import {
+  Box,
+  Button,
+  ScrollView,
+  HStack,
+  VStack,
+  Text,
+  useDisclose,
+  useToast,
+} from 'native-base';
+import type {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {RootStackParamList} from '~/routes';
+import Select from '~/components/form/Select';
+import {useForm, FormProvider, useController} from 'react-hook-form';
+import DatePicker from '~/components/form/DatePicker';
+
+import {fetchBranchesUser, useBranches} from '~/hooks/useBranch';
+import {useZones} from '~/hooks/useZone';
+import {useStaffs} from '~/hooks/useStaff';
+import {ITemplateAttributies} from '~/types/template';
+import {IOption} from '~/components/common/Select';
+import {IZoneAttributies} from '~/types/zone';
+import {useAuth} from '~/hooks/auth/useAuth';
+import {yupResolver} from '@hookform/resolvers/yup';
+import * as yup from 'yup';
+import DialogAlert from '~/components/common/DialogAlert';
+import {IFormAttributies} from '~/types/form';
+import BranchGroup from './components/Branches';
+import {CommonActions} from '@react-navigation/native';
+import R from '~/assets';
+import {useFetchBranchs, useFormCreate, useTemplates} from './hook';
+import {useI18n} from '~/providers/I18nProvider';
+import {OverlayLoading} from '~/components/common/OverlayLoading';
+import { useDepartment } from '~/hooks/useDepartment';
+import { useAllData } from '~/hooks/useAllData';
+
+type ICreateReviewProps = NativeStackScreenProps<
+  RootStackParamList,
+  'CreateReview'
+>;
+
+const CreateReview: React.FC<ICreateReviewProps> = ({navigation}) => {
+  const {user} = useAuth();
+  const toast = useToast();
+  const i18n = useI18n();
+  const {isOpen, onOpen, onClose} = useDisclose();
+  const hasReview: boolean = useMemo(
+    () => !!user?.isOwner || !!user?.rules?.fn_review,
+    [user?.isOwner, user?.rules?.fn_review],
+  );
+
+  useEffect(() => {
+    if (!hasReview) {
+      onOpen();
+    }
+  }, [hasReview]);
+
+  const methods = useForm<{}>({
+    defaultValues: {
+      template_id: '',
+      approved_user_id: '',
+      review_user_id: user?._id,
+      branch_id: '',
+      zone_id: '',
+      department_id:'',
+      branch_group_id: '',
+      review_date: new Date(),
+    },
+    // @ts-ignore
+    resolver: yupResolver(
+      yup
+        .object()
+        .shape({
+          template_id: yup.string().required('Vui lòng chọn mẫu đánh giá.'),
+          approved_user_id: yup
+            .string()
+            .required('Vui lòng chọn người xác nhận.'),
+          branch_id: yup.string().required('Vui lòng chọn chi nhánh.'),
+        })
+        .required(),
+    ),
+  });
+
+  const {control, handleSubmit} = methods;
+  const { field: fieldDepartment } = useController({ name: 'department_id', control });
+  const { field: fieldBranchParent } = useController({ name: 'branch_group_id', control });
+
+  const parseOption = (t: ITemplateAttributies | IZoneAttributies) => ({
+    value: t.id,
+    label: `${t.code}-${t.name}`,
+    branchIds: t.branchIds,
+    state: t.state,
+    code:t.code,
+    department_id:t.department_id,
+  });
+  const { data: dataAll } = user?._id ? useAllData(user._id) : { data: null };
+  const { data: templates, isLoading, error, refetch } = useTemplates(fieldDepartment?.value);
+
+  const { data: branchParent, refetch: refetchBranchParent } = useFetchBranchs(
+    fieldDepartment?.value || '',
+    'true',
+    ''
+  );
+
+
+  const { data: branch, refetch: refetchBranch } = useFetchBranchs(
+    fieldDepartment?.value || '',
+    'false',
+    fieldBranchParent?.value || ''
+  );
+
+  useEffect(() => {
+    if (fieldDepartment?.value) {
+      refetchBranchParent();
+      refetchBranch();
+    }
+  }, [fieldDepartment?.value, refetchBranchParent, refetchBranch]);
+  
+  const {data: department} = useDepartment({
+    select: d =>({
+    value: d.id,
+    label: d.name,
+    code: d.code,
+    }),
+  });
+
+
+  const {data: zones} = useZones({
+    select: parseOption,
+  });
+   
+  // if (Array.isArray(dataAll) && dataAll.length > 0) {
+  //   const zones = dataAll[0].zones;
+  //   console.log('Zones:', zones);
+  // } else {
+  //   console.log('Data is not structured as expected or is empty.');
+  // }
+  const {data: branches} = useBranches();
+
+
+  const {data: staffs} = useStaffs({
+    select: u => ({
+      label: u.fullName,
+      value: u.id,
+    }),
+  });
+  
+  const onCreateSuccess = (data: any) => {
+    navigation.navigate('Review', {
+      formId: data.id,
+    });
+  };
+
+  const onCreateError = useCallback(
+    () =>
+      toast.show({
+        description: i18n.t(R.strings.errors_has_err),
+      }),
+    [toast],
+  );
+
+  const {mutateAsync: autoCreateMutation, isLoading: isCreatingForm} =
+    useFormCreate(onCreateSuccess, onCreateError);
+
+  const onSubmit = (values: any) => {
+    autoCreateMutation({
+      template_id: values.template_id,
+      branch_id: values.branch_id,
+      review_user_id: values.review_user_id,
+      approved_user_id: values.approved_user_id,
+      review_date: values.review_date,
+    });
+  };
+
+  // const filteredTemplates = useMemo(() => {
+  //   return templates?.filter(t => t.department_id === fieldDepartment.value) || [];
+  // }, [templates,fieldDepartment]);
+
+
+  return (
+    <Box bg="custom.white" flex={1} px={4} py={3}>
+      <OverlayLoading isLoading={isCreatingForm} />
+      <DialogAlert
+        open={isOpen}
+        onClose={() => {
+          onClose();
+          navigation.goBack();
+        }}
+        closeText="OK"
+        description="Bạn không có quyền tạo đánh giá."
+      />
+      <ScrollView flex={1}>
+        <FormProvider {...methods}>
+          <VStack space={4}>
+          <Select
+              control={control}
+              name="department_id"
+              SelectProps={{
+                placeholder: 'Tìm kiếm: Tên, mã phòng ban ...',
+                accessibilityLabel: 'Chọn phòng ban',
+                options: department as IOption[],
+              }}
+            />
+            <Select
+              control={control}
+              name="template_id"
+              SelectProps={{
+                placeholder: 'Tìm kiếm: Tên, mã đánh giá ...',
+                accessibilityLabel: 'Chọn mẫu đánh giá',
+                options: templates as IOption[],
+              }}
+            />
+             <Select
+        control={control}
+        name="branch_group_id"
+        SelectProps={{
+          placeholder: 'Tìm kiếm: Tên, mã nhóm chi nhánh...',
+          accessibilityLabel: 'Chọn nhóm chi nhánh',
+          options: branchParent,
+        }}
+      />
+       <Select
+        control={control}
+        name="branch_id"
+        SelectProps={{
+          placeholder: 'Tìm kiếm: Tên, mã chi nhánh...',
+          accessibilityLabel: 'Chọn chi nhánh',
+          options: branch,
+        }}
+      /> 
+      {/* <Select
+        control={control}
+        name="approved_user_id"
+        SelectProps={{
+          placeholder: 'Tìm kiếm: Tên, mã ...',
+          accessibilityLabel: 'Chọn người dùng phê duyệt',
+          options: userOptions,
+        }}
+      />  */}
+         
+            <BranchGroup control={control} branches={branches} fieldDepartment={fieldDepartment.value} dataAll={dataAll} />
+
+            {/* <Select
+              control={control}
+              name="approved_user_id"
+              SelectProps={{
+                placeholder: 'Người xác nhận',
+                options: staffs as IOption[],
+              }}
+            /> */}
+         
+            <HStack alignItems="center" space={3}>
+              <Text>Ngày</Text>
+              <DatePicker
+                control={control}
+                name="review_date"
+                inputProps={{isDisabled: true}}
+                format="dd/MM/yyyy HH:mm"
+              />
+            </HStack>
+
+            <HStack alignSelf={'center'} space={6} mt={8}>
+              <Button
+                variant={'Subtle'}
+                px={4}
+                bg="gray.100"
+                borderRadius={10}
+                onPress={navigation.goBack}
+                _text={{bold: true, color: 'red.500'}}>
+                Huỷ
+              </Button>
+              <Button
+                px={4}
+                _text={{bold: true}}
+                borderRadius={10}
+                onPress={handleSubmit(onSubmit)}>
+                Tiếp tục
+              </Button>
+            </HStack>
+          </VStack>
+        </FormProvider>
+      </ScrollView>
+    </Box>
+  );
+};
+
+export default CreateReview;
